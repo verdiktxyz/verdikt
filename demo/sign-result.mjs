@@ -79,7 +79,7 @@ if (onchain.toLowerCase() !== digest.toLowerCase()) {
 // Sign the raw digest with each arbiter key, then sort by signer address.
 const signed = [];
 for (const pk of PKS) {
-  const account = privateKeyToAccount(pk.trim());
+  const account = privateKeyToAccount(pk.trim().startsWith('0x') ? pk.trim() : `0x${pk.trim()}`);
   const signature = await account.sign({ hash: digest });
   signed.push({ signer: account.address, signature });
 }
