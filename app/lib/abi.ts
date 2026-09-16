@@ -1,4 +1,4 @@
-// Generated from contracts/out/PrizePoolVault.sol/PrizePoolVault.json — do not edit by hand.
+
 export const vaultAbi = [
   {
     "type": "constructor",
@@ -997,6 +997,11 @@ export const vaultAbi = [
   {
     "type": "error",
     "name": "DuplicateArbiter",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DuplicateWinner",
     "inputs": []
   },
   {
