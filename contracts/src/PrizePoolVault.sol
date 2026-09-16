@@ -112,6 +112,7 @@ contract PrizePoolVault is ArbiterAttestation {
     error RankedLengthMismatch();
     error TooFewParticipants();
     error NotRegisteredWinner();
+    error DuplicateWinner();
     error DeadlinePassed();
     error WindowClosed();
     error WindowStillOpen();
@@ -477,7 +478,12 @@ contract PrizePoolVault is ArbiterAttestation {
         for (uint256 i = 0; i < n; i++) {
             address w = rankedWallets[i];
             if (!isParticipantWallet[w]) revert NotRegisteredWinner();
-            claim[w] += parts[i]; // += keeps sums right if a wallet holds two ranks
+            // One wallet, one podium place. A real match can't rank the same
+            // player twice — a duplicate is a signing mistake, not a ranking.
+            for (uint256 j = 0; j < i; j++) {
+                if (rankedWallets[j] == w) revert DuplicateWinner();
+            }
+            claim[w] += parts[i];
             allocated += parts[i];
             _winners.push(w);
         }
