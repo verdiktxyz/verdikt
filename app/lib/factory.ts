@@ -1,5 +1,5 @@
-// Generated from contracts/out/ArcGGFactory.sol/ArcGGFactory.json — do not edit by hand.
-// TODO: paste the deployed factory address after running DeployFactory.s.sol
+// Generated from contracts/out/VerdiktFactory.sol/VerdiktFactory.json — do not edit by hand.
+// TODO: replace with the mainnet factory address after DeployFactory.s.sol
 export const FACTORY_ADDRESS = "0xd01F9Fda58f6AecD303664E4f320152f077810c2" as const;
 
 export const factoryAbi = [
@@ -11,7 +11,7 @@ export const factoryAbi = [
       {
         "name": "",
         "type": "tuple[]",
-        "internalType": "struct ArcGGFactory.TournamentInfo[]",
+        "internalType": "struct VerdiktFactory.TournamentInfo[]",
         "components": [
           {
             "name": "vault",
@@ -58,7 +58,7 @@ export const factoryAbi = [
       {
         "name": "p",
         "type": "tuple",
-        "internalType": "struct ArcGGFactory.CreateParams",
+        "internalType": "struct VerdiktFactory.CreateParams",
         "components": [
           {
             "name": "name",
@@ -136,7 +136,7 @@ export const factoryAbi = [
       {
         "name": "out",
         "type": "tuple[]",
-        "internalType": "struct ArcGGFactory.TournamentInfo[]",
+        "internalType": "struct VerdiktFactory.TournamentInfo[]",
         "components": [
           {
             "name": "vault",

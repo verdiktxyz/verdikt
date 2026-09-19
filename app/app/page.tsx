@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useAccount,
   useConnect,
@@ -8,8 +8,10 @@ import {
   useReadContract,
   useWriteContract,
   useWaitForTransactionReceipt,
+  useSignTypedData,
+  usePublicClient,
 } from "wagmi";
-import { parseEther, isAddress, getAddress, stringToHex, hexToString, decodeEventLog } from "viem";
+import { parseEther, isAddress, getAddress, stringToHex, hexToString, decodeEventLog, keccak256, encodeAbiParameters, hashTypedData, recoverTypedDataAddress } from "viem";
 import { arcTestnet } from "@/lib/chain";
 import { vaultAbi } from "@/lib/abi";
 import { FACTORY_ADDRESS, factoryAbi } from "@/lib/factory";
@@ -77,15 +79,15 @@ function TopBar({ showHome }: { showHome: boolean }) {
     <header className="flex items-center justify-between py-6">
       <div className="flex items-baseline gap-3">
         <a href="/" className="no-underline">
-          <span className="text-2xl font-bold text-white">Arc</span>
-          <span className="text-2xl font-bold text-cyan">GG</span>
+          <span className="text-2xl font-bold text-white">Verd</span>
+          <span className="text-2xl font-bold text-cyan">ikt</span>
         </a>
         <span className="hidden text-xs tracking-[0.25em] text-mut sm:inline">
-          GG, GET PAID
+          THE JURY SIGNS. THE MONEY MOVES.
         </span>
         {showHome && (
           <a href="/" className="ml-2 text-xs text-mut hover:text-cyan">
-            ← all tournaments
+            ← all competitions
           </a>
         )}
       </div>
@@ -123,13 +125,13 @@ function Landing() {
     <>
       <section className="rounded-2xl border border-edge bg-card p-6">
         <h1 className="text-xl font-bold text-white">
-          Trustless prize pools for esports tournaments
+          Trustless prize pools for any competition
         </h1>
         <p className="mt-2 max-w-3xl text-sm text-mut">
-          Sponsors lock USDC before play begins. Results are attested by an
-          M-of-N judge set. Winners withdraw after a clean challenge window —
-          and every rule is committed on-chain, inspectable before anyone
-          deposits a cent.
+          Hackathons, tournaments, design contests, bounties — anywhere a jury
+          decides who gets paid. Sponsors lock USDC upfront, judges attest the
+          result M-of-N, winners withdraw after a clean challenge window. Every
+          rule is committed on-chain, inspectable before anyone deposits a cent.
         </p>
       </section>
       <TournamentList />
@@ -149,17 +151,17 @@ function TournamentList() {
   return (
     <section className="mt-5 rounded-2xl border border-edge bg-card p-6">
       <h2 className="text-xs font-semibold tracking-[0.2em] text-mut">
-        TOURNAMENTS
+        COMPETITIONS
       </h2>
       {FACTORY_UNSET ? (
         <p className="mt-3 text-sm text-mut">
           Factory not deployed yet — set FACTORY_ADDRESS in lib/factory.ts.
         </p>
       ) : !mounted || !infos ? (
-        <p className="mt-3 text-sm text-mut">Loading tournaments…</p>
+        <p className="mt-3 text-sm text-mut">Loading competitions…</p>
       ) : infos.length === 0 ? (
         <p className="mt-3 text-sm text-mut">
-          No tournaments yet. Create the first one below.
+          No competitions yet. Create the first one below.
         </p>
       ) : (
         <ul className="mt-3 divide-y divide-edge">
@@ -295,7 +297,7 @@ function CreateTournament() {
   return (
     <section className="mt-5 rounded-2xl border border-edge bg-card p-6">
       <h2 className="text-xs font-semibold tracking-[0.2em] text-mut">
-        CREATE A TOURNAMENT
+        CREATE A COMPETITION
       </h2>
       <p className="mt-2 text-sm text-mut">
         One transaction deploys a dedicated vault. You become the organizer —
@@ -305,8 +307,8 @@ function CreateTournament() {
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <div className="md:col-span-2">
-          <label className="text-xs text-mut">Tournament name</label>
-          <input className={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="Lagos Winter Cup" />
+          <label className="text-xs text-mut">Competition name</label>
+          <input className={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="Lagos Winter Cup / Hackathon Dakar 2026" />
         </div>
         <div>
           <label className="text-xs text-mut">Prize pool (USDC)</label>
@@ -392,7 +394,7 @@ function CreateTournament() {
         onClick={submit}
         className="mt-4 rounded-lg bg-violet px-5 py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-40"
       >
-        {isPending || isLoading ? "Creating…" : "Create tournament"}
+        {isPending || isLoading ? "Creating…" : "Create competition"}
       </button>
       {!FACTORY_UNSET && mounted && !isConnected && (
         <p className="mt-2 text-xs text-mut">Connect a wallet to create.</p>
@@ -428,6 +430,7 @@ function TournamentView({ vault }: { vault: VaultRef }) {
   const deposited = (snap?.[2] as bigint | undefined) ?? 0n;
   const windowEndsAt = (snap?.[3] as bigint | undefined) ?? 0n;
   const unclaimedTotal = (snap?.[5] as bigint | undefined) ?? 0n;
+  const resolutionRound = (snap?.[6] as bigint | undefined) ?? 0n;
 
   const stateName: VaultState | undefined =
     state !== undefined ? STATES[state] : undefined;
@@ -464,6 +467,12 @@ function TournamentView({ vault }: { vault: VaultRef }) {
       </div>
 
       <AdminPanel vault={vault} stateName={stateName} onChanged={refetch} />
+      <JudgePanel
+        vault={vault}
+        stateName={stateName}
+        resolutionRound={resolutionRound}
+        onChanged={refetch}
+      />
       <ParticipantsPanel vault={vault} />
       <RulesPanel vault={vault} />
 
@@ -1105,6 +1114,410 @@ function AdminPanel({
 }
 
 // ─────────────────────────────────────────────────────────────
+// Judges' bench — sign the result in MetaMask, relay it on-chain.
+// Mirrors ArbiterAttestation.sol exactly: same domain, same Result type,
+// so an in-app signature and a script signature are indistinguishable.
+// ─────────────────────────────────────────────────────────────
+const RESULT_TYPES = {
+  Result: [
+    { name: "tournamentId", type: "bytes32" },
+    { name: "rankingHash", type: "bytes32" },
+    { name: "round", type: "uint256" },
+  ],
+} as const;
+
+function resultTypedData(
+  vaultAddr: `0x${string}`,
+  tournamentId: `0x${string}`,
+  ranked: `0x${string}`[],
+  round: bigint,
+) {
+  return {
+    domain: {
+      name: "Verdikt PrizePoolVault",
+      version: "1",
+      chainId: arcTestnet.id,
+      verifyingContract: vaultAddr,
+    },
+    types: RESULT_TYPES,
+    primaryType: "Result" as const,
+    message: {
+      tournamentId,
+      rankingHash: keccak256(
+        encodeAbiParameters([{ type: "address[]" }], [ranked]),
+      ),
+      round,
+    },
+  } as const;
+}
+
+type SigPackage = {
+  verdikt: number;
+  vault: string;
+  round: string;
+  ranked: string[];
+  signer: string;
+  sig: `0x${string}`;
+};
+
+function JudgePanel({
+  vault,
+  stateName,
+  resolutionRound,
+  onChanged,
+}: {
+  vault: VaultRef;
+  stateName?: VaultState;
+  resolutionRound: bigint;
+  onChanged: () => void;
+}) {
+  const mounted = useMounted();
+  const { address } = useAccount();
+  const publicClient = usePublicClient();
+
+  const { data: cfg } = useReadContract({
+    ...vault,
+    functionName: "config",
+    query: { staleTime: Infinity },
+  });
+  const { data: tid } = useReadContract({
+    ...vault,
+    functionName: "tournamentId",
+    query: { staleTime: Infinity },
+  });
+  const { data: roster } = useReadContract({
+    ...vault,
+    functionName: "participants",
+    query: { refetchInterval: 30000 },
+  });
+
+  const active = stateName === "Live" || stateName === "Challenged";
+  const arbiters = useMemo(
+    () => (cfg ? cfg[1].map((a) => a.toLowerCase()) : []),
+    [cfg],
+  );
+  const threshold = cfg ? Number(cfg[2]) : 0;
+  const ranks = cfg ? cfg[3].length : 0;
+  const isJudge =
+    mounted && !!address && arbiters.includes(address.toLowerCase());
+  // A Challenged re-resolution signs for the NEXT round (reResolve increments first).
+  const signRound =
+    stateName === "Challenged" ? resolutionRound + 1n : resolutionRound;
+
+  const [rankSel, setRankSel] = useState<string[]>([]);
+  useEffect(() => {
+    setRankSel((prev) =>
+      prev.length === ranks ? prev : Array(ranks).fill(""),
+    );
+  }, [ranks]);
+
+  const [signError, setSignError] = useState<string | null>(null);
+  const [myPackage, setMyPackage] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const { signTypedDataAsync, isPending: signing } = useSignTypedData();
+
+  const [pasted, setPasted] = useState("");
+  const [collect, setCollect] = useState<{
+    ranked: `0x${string}`[] | null;
+    sigs: { signer: string; sig: `0x${string}` }[];
+    errors: string[];
+  }>({ ranked: null, sigs: [], errors: [] });
+
+  const {
+    writeContract,
+    data: hash,
+    isPending: submitting,
+    error: submitError,
+  } = useWriteContract();
+  const { isLoading: confirming, isSuccess: submitted } =
+    useWaitForTransactionReceipt({ hash });
+  useEffect(() => {
+    if (submitted) onChanged();
+  }, [submitted, onChanged]);
+
+  // Validate pasted signature packages: same vault/round/ranking, real judge sigs.
+  useEffect(() => {
+    let stale = false;
+    (async () => {
+      const lines = pasted
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean);
+      const errors: string[] = [];
+      let ranked: `0x${string}`[] | null = null;
+      const seen = new Map<string, { signer: string; sig: `0x${string}` }>();
+      for (const [i, line] of lines.entries()) {
+        let p: SigPackage;
+        try {
+          p = JSON.parse(line);
+        } catch {
+          errors.push(`Line ${i + 1}: not valid JSON.`);
+          continue;
+        }
+        if (p.verdikt !== 1 || !p.vault || !p.ranked || !p.sig) {
+          errors.push(`Line ${i + 1}: not a Verdikt signature package.`);
+          continue;
+        }
+        if (p.vault.toLowerCase() !== vault.address.toLowerCase()) {
+          errors.push(`Line ${i + 1}: package is for a different vault.`);
+          continue;
+        }
+        if (p.round !== String(signRound)) {
+          errors.push(
+            `Line ${i + 1}: signed for round ${p.round}, current is ${signRound}.`,
+          );
+          continue;
+        }
+        const r = p.ranked.map((a) => getAddress(a)) as `0x${string}`[];
+        if (ranked === null) ranked = r;
+        else if (JSON.stringify(r) !== JSON.stringify(ranked)) {
+          errors.push(`Line ${i + 1}: ranking differs from line 1 — judges must sign the same ranking.`);
+          continue;
+        }
+        if (!tid) continue;
+        try {
+          const signer = await recoverTypedDataAddress({
+            ...resultTypedData(vault.address, tid as `0x${string}`, r, signRound),
+            signature: p.sig,
+          });
+          if (!arbiters.includes(signer.toLowerCase())) {
+            errors.push(`Line ${i + 1}: signer ${shortAddr(signer)} is not a judge of this tournament.`);
+            continue;
+          }
+          seen.set(signer.toLowerCase(), { signer, sig: p.sig });
+        } catch {
+          errors.push(`Line ${i + 1}: signature does not verify.`);
+        }
+      }
+      if (!stale)
+        setCollect({ ranked, sigs: [...seen.values()], errors });
+    })();
+    return () => {
+      stale = true;
+    };
+  }, [pasted, vault.address, tid, signRound, arbiters]);
+
+  if (!mounted || !active || !cfg || !roster) return null;
+  const [ids, wallets] = roster;
+  if (wallets.length === 0) return null;
+
+  const nameOf = (w: string) => {
+    const i = wallets.findIndex(
+      (x) => x.toLowerCase() === w.toLowerCase(),
+    );
+    return i >= 0
+      ? hexToString(ids[i], { size: 32 }).replace(/\0+$/, "")
+      : shortAddr(w as `0x${string}`);
+  };
+
+  async function sign() {
+    setSignError(null);
+    if (rankSel.some((r) => !r))
+      return setSignError("Assign a player to every rank.");
+    if (new Set(rankSel).size !== rankSel.length)
+      return setSignError("Each player can hold only one rank.");
+    const ranked = rankSel as `0x${string}`[];
+    try {
+      const typed = resultTypedData(
+        vault.address,
+        tid as `0x${string}`,
+        ranked,
+        signRound,
+      );
+      // Cross-check our local digest against the contract before asking for a signature.
+      const onchain = await publicClient!.readContract({
+        ...vault,
+        functionName: "resultDigest",
+        args: [ranked, signRound],
+      });
+      if (hashTypedData(typed) !== onchain)
+        return setSignError(
+          "Digest mismatch between app and contract — refusing to sign.",
+        );
+      const sig = await signTypedDataAsync(typed);
+      const pkg: SigPackage = {
+        verdikt: 1,
+        vault: vault.address,
+        round: String(signRound),
+        ranked,
+        signer: address!,
+        sig,
+      };
+      const line = JSON.stringify(pkg);
+      setMyPackage(line);
+      setPasted((prev) => (prev.trim() ? prev.trimEnd() + "\n" + line : line));
+    } catch (e) {
+      setSignError(
+        (e as { shortMessage?: string }).shortMessage ??
+          (e as Error).message,
+      );
+    }
+  }
+
+  const enough = collect.sigs.length >= threshold && !!collect.ranked;
+
+  function submit() {
+    if (!collect.ranked) return;
+    const sorted = [...collect.sigs]
+      .sort((a, b) => (a.signer.toLowerCase() < b.signer.toLowerCase() ? -1 : 1))
+      .map((s) => s.sig);
+    writeContract({
+      ...vault,
+      functionName: stateName === "Challenged" ? "reResolve" : "proposeResult",
+      chainId: arcTestnet.id,
+      args: [collect.ranked, sorted],
+    });
+  }
+
+  const field =
+    "w-full rounded-lg border border-edge bg-ink px-3 py-2 text-sm outline-none focus:border-violet";
+
+  return (
+    <section className="mt-5 rounded-2xl border border-cyan/40 bg-card p-6">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-xs font-semibold tracking-[0.2em] text-cyan">
+          JUDGES&apos; BENCH{stateName === "Challenged" ? " — re-resolution" : ""}
+        </h2>
+        <span className="text-xs text-mut">
+          round {String(signRound)} · {threshold}-of-{arbiters.length} signatures
+        </span>
+      </div>
+
+      {isJudge ? (
+        <div className="mt-3">
+          <p className="text-sm text-mut">
+            You are a judge of this tournament. Rank the players and sign —
+            it&apos;s an off-chain signature: no gas, no transaction, nothing to
+            pay.
+          </p>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            {rankSel.map((sel, i) => (
+              <div key={i}>
+                <label className="text-xs text-mut">
+                  {i + 1}
+                  {i === 0 ? "st" : i === 1 ? "nd" : i === 2 ? "rd" : "th"} place
+                </label>
+                <select
+                  className={field}
+                  value={sel}
+                  onChange={(e) =>
+                    setRankSel((prev) =>
+                      prev.map((p, j) => (j === i ? e.target.value : p)),
+                    )
+                  }
+                >
+                  <option value="">— pick a player —</option>
+                  {wallets.map((w) => (
+                    <option key={w} value={w}>
+                      {nameOf(w)} ({shortAddr(w)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={sign}
+            disabled={signing}
+            className="mt-3 rounded-lg bg-cyan px-4 py-2 text-sm font-semibold text-ink hover:opacity-90 disabled:opacity-40"
+          >
+            {signing ? "Check your wallet…" : "Sign this ranking"}
+          </button>
+          {signError && (
+            <p className="mt-2 text-xs text-danger">{signError}</p>
+          )}
+          {myPackage && (
+            <div className="mt-3">
+              <p className="text-xs text-cyan">
+                ✓ Signed. Send this package to your co-judges (chat, email —
+                anything):
+              </p>
+              <div className="mt-1 flex gap-2">
+                <textarea
+                  readOnly
+                  value={myPackage}
+                  rows={2}
+                  className="w-full rounded-lg border border-edge bg-ink px-3 py-2 font-display text-xs text-mut"
+                />
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(myPackage);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
+                  }}
+                  className="rounded-lg border border-edge px-3 text-xs text-white hover:border-cyan"
+                >
+                  {copied ? "✓" : "Copy"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="mt-3 text-sm text-mut">
+          The judges sign the final ranking off-chain. Collect their signature
+          packages below — anyone can relay the result on-chain.
+        </p>
+      )}
+
+      <div className="mt-4 border-t border-edge pt-4">
+        <label className="text-xs text-mut">
+          Signature packages — one per line
+        </label>
+        <textarea
+          value={pasted}
+          onChange={(e) => setPasted(e.target.value)}
+          rows={3}
+          placeholder='{"verdikt":1,"vault":"0x…","round":"0","ranked":[…],"signer":"0x…","sig":"0x…"}'
+          className="mt-1 w-full rounded-lg border border-edge bg-ink px-3 py-2 font-display text-xs outline-none focus:border-violet"
+        />
+        <div className="mt-2 flex items-center justify-between">
+          <p
+            className={
+              "text-xs " + (enough ? "text-cyan" : "text-mut")
+            }
+          >
+            {collect.sigs.length}/{threshold} required signatures collected
+            {enough ? " ✓" : ""}
+          </p>
+          <button
+            onClick={submit}
+            disabled={!enough || submitting || confirming}
+            className="rounded-lg bg-violet px-4 py-2 text-sm font-semibold hover:opacity-90 disabled:opacity-40"
+          >
+            {submitting || confirming
+              ? "Relaying…"
+              : stateName === "Challenged"
+                ? "Re-resolve on-chain"
+                : "Propose result on-chain"}
+          </button>
+        </div>
+        {collect.errors.map((e, i) => (
+          <p key={i} className="mt-1 text-xs text-danger">
+            {e}
+          </p>
+        ))}
+        {submitting && <TxProgress label="Confirm in your wallet…" />}
+        {confirming && (
+          <TxProgress label="Relaying the attested result on-chain…" />
+        )}
+        {submitted && (
+          <div className="mt-3 rounded-lg border border-cyan/40 bg-cyan/10 px-3 py-2 text-sm text-cyan">
+            ✓ Result proposed — the challenge window is now running.
+          </div>
+        )}
+        {submitError && (
+          <p className="mt-2 text-xs text-danger">
+            {(submitError as { shortMessage?: string }).shortMessage ??
+              submitError.message}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Participants panel — the roster, locked before play, public always
 // ─────────────────────────────────────────────────────────────
 function ParticipantsPanel({ vault }: { vault: VaultRef }) {
@@ -1194,7 +1607,7 @@ function RulesPanel({ vault }: { vault: VaultRef }) {
     <section className="mt-5 rounded-2xl border border-edge bg-card p-6">
       <div className="flex items-baseline justify-between">
         <h2 className="text-xs font-semibold tracking-[0.2em] text-mut">
-          TOURNAMENT RULES
+          COMPETITION RULES
         </h2>
         <span className="text-xs text-mut">
           committed at deployment · immutable · verify before you deposit
