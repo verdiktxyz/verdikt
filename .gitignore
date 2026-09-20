@@ -37,3 +37,6 @@ yarn-error.log*
 .cursorignore
 .cursorindexingignore
 demo/result-args.env
+
+.next/
+app/.next/
