@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ArcGG — arbiter result signing (EIP-712, M-of-N)
+ * Verdikt — juror result signing (EIP-712, M-of-N)
  *
  * Signs the Result(tournamentId, rankingHash, round) struct with each arbiter
  * key, cross-checks the digest against the vault's own resultDigest() view,
@@ -51,7 +51,7 @@ const tournamentId = await client.readContract({ address: VAULT, abi, functionNa
 const rankingHash = keccak256(encodeAbiParameters([{ type: "address[]" }], [RANKED]));
 const digest = hashTypedData({
   domain: {
-    name: "ArcGG PrizePoolVault",
+    name: "Verdikt PrizePoolVault",
     version: "1",
     chainId,
     verifyingContract: VAULT,
@@ -79,7 +79,7 @@ if (onchain.toLowerCase() !== digest.toLowerCase()) {
 // Sign the raw digest with each arbiter key, then sort by signer address.
 const signed = [];
 for (const pk of PKS) {
-  const account = privateKeyToAccount(pk.trim().startsWith('0x') ? pk.trim() : `0x${pk.trim()}`);
+  const account = privateKeyToAccount(pk.trim());
   const signature = await account.sign({ hash: digest });
   signed.push({ signer: account.address, signature });
 }

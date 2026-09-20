@@ -60,7 +60,7 @@ abstract contract ArbiterAttestation {
         DOMAIN_SEPARATOR = keccak256(
             abi.encode(
                 EIP712_DOMAIN_TYPEHASH,
-                keccak256(bytes("ArcGG PrizePoolVault")),
+                keccak256(bytes("Verdikt PrizePoolVault")),
                 keccak256(bytes("1")),
                 block.chainid,
                 address(this)

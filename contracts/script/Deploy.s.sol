@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {PrizePoolVault} from "../src/PrizePoolVault.sol";
 
-/// @notice Deploys a demo ArcGG vault to Arc testnet.
+/// @notice Deploys a standalone demo vault to Arc testnet.
 /// Usage:
 ///   cp .env.example .env   # fill PRIVATE_KEY, ARBITER_2/3, CHALLENGE_WINDOW...
 ///   source .env
@@ -45,7 +45,7 @@ contract Deploy is Script {
         });
         vm.stopBroadcast();
 
-        console.log("ArcGG PrizePoolVault deployed at:", address(vault));
+        console.log("Verdikt PrizePoolVault deployed at:", address(vault));
         console.log("challengeWindow (s):", vault.challengeWindow());
         console.log("Explorer: https://testnet.arcscan.app/address/%s", address(vault));
     }

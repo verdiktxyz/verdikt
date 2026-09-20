@@ -19,7 +19,8 @@ import {RankMath} from "./RankMath.sol";
 ///        {Created, Funded, Live, Challenged} -> Cancelled (deadline safety valves)
 ///
 ///      Money invariants:
-///        - sum(claims) + heldBond + refundable deposits == contract balance, always
+///        - sum(claims) + heldBond + refundable deposits <= contract balance, always
+///          (equality holds absent force-fed native transfers, which carry no rights here)
 ///        - funds can only ever flow to registered participant wallets (withdraw),
 ///          back to depositors (refund), or back to the challenger (bond refund).
 ///          There is NO path to an arbitrary address — not even for the admin.
@@ -152,13 +153,15 @@ contract PrizePoolVault is ArbiterAttestation {
     ) ArbiterAttestation(arbiters, _threshold, _tournamentId) {
         if (_admin == address(0)) revert ZeroWallet();
         if (_prizePool == 0) revert ZeroAmount();
-        if (rankBps_.length == 0) revert BadConfig();
+        if (rankBps_.length == 0 || rankBps_.length > 8) revert BadConfig();
         if (_fundingDeadline <= block.timestamp) revert BadConfig();
         if (_resolutionDeadline <= _fundingDeadline) revert BadConfig();
         if (_challengeWindow == 0) revert BadConfig();
+        if (_challengeBond == 0) revert BadConfig(); // free challenges = free griefing
 
         uint256 sum;
         for (uint256 i = 0; i < rankBps_.length; i++) {
+            if (rankBps_[i] == 0) revert BadConfig(); // a paid rank must pay
             sum += rankBps_[i];
         }
         if (sum != 10_000) revert BadConfig();
@@ -244,6 +247,10 @@ contract PrizePoolVault is ArbiterAttestation {
     /// @dev Only registered participant wallets may challenge — outsiders can't grief.
     function challenge() external payable inState(State.ResultProposed) {
         if (block.timestamp >= windowEndsAt) revert WindowClosed();
+        // A result that can no longer be re-resolved is FINAL — unchallengeable.
+        // Without this bound, a loser's third challenge would strand the vault in
+        // Challenged until the deadline cancels a valid final result (audit H-1).
+        if (reResolutionCount >= MAX_RE_RESOLUTIONS) revert TooManyReResolutions();
         if (!isParticipantWallet[msg.sender]) revert NotParticipant();
         if (msg.value != challengeBond) revert WrongBond();
 
@@ -278,9 +285,12 @@ contract PrizePoolVault is ArbiterAttestation {
         if (founded) {
             bondRefund[challenger] += heldBond;
         } else {
-            // Griefing a winner pays the winner.
-            claim[rankedWallets[0]] += heldBond;
-            unclaimedTotal += heldBond;
+            // Griefing a winner pays the winner — via the pull channel that survives
+            // _clearClaims() and cancellation (audit M-1: folding the bond into the
+            // mutable claim let a later clear orphan it in the balance forever).
+            // If a later founded round changes rank 0, the delayed winner keeps the
+            // compensation for the delay they actually suffered.
+            bondRefund[rankedWallets[0]] += heldBond;
         }
         heldBond = 0;
         challenger = address(0);
@@ -306,17 +316,15 @@ contract PrizePoolVault is ArbiterAttestation {
         uint256 amount = claim[msg.sender];
         if (amount == 0) revert NothingToWithdraw();
 
-        claim[msg.sender] = 0; // effect before interaction
+        claim[msg.sender] = 0; // effects before interaction — all of them
         unclaimedTotal -= amount;
+        bool closing = unclaimedTotal == 0;
+        if (closing) state = State.Closed;
 
         (bool ok,) = msg.sender.call{value: amount}("");
         if (!ok) revert TransferFailed();
         emit Withdrawn(msg.sender, amount);
-
-        if (unclaimedTotal == 0) {
-            state = State.Closed;
-            emit VaultClosed();
-        }
+        if (closing) emit VaultClosed();
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -333,7 +341,9 @@ contract PrizePoolVault is ArbiterAttestation {
         if (state == State.Created || state == State.Funded) {
             allowed = msg.sender == admin || block.timestamp > fundingDeadline;
         } else if (state == State.Live) {
-            allowed = msg.sender == admin || block.timestamp > resolutionDeadline;
+            // Once live, not even the admin can abort a running tournament —
+            // "nobody can touch it" is a promise, not a tagline. Deadline only.
+            allowed = block.timestamp > resolutionDeadline;
         } else if (state == State.Challenged) {
             allowed = block.timestamp > reResolveDeadline;
         }

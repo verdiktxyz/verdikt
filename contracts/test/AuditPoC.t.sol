@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 // AUDIT REGRESSIONS — these were the PoCs for audit findings H-1/ARC-02 and
-// M-1/ARC-01 (see ArcGG-audit-report.md). Inverted after the fix: the attacks
+// M-1/ARC-01 (see docs/audit-2026-09.md). Inverted after the fix: the attacks
 // must now FAIL, and stay failing forever.
 import {Test} from "forge-std/Test.sol";
 import {PrizePoolVault} from "../src/PrizePoolVault.sol";

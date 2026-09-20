@@ -326,7 +326,8 @@ contract PrizePoolVaultTest is Test {
         bytes[] memory sigs = _sign(ranked, 1, _twoSigs());
         vault.reResolve(_toCalldata(ranked), sigs);
 
-        assertEq(vault.claim(p1), 60 ether + BOND); // griefing a winner pays the winner
+        assertEq(vault.claim(p1), 60 ether); // prize untouched by the bond
+        assertEq(vault.bondRefund(p1), BOND); // griefing a winner pays the winner — pull channel
         assertEq(vault.bondRefund(p2), 0);
 
         // full drain still balances to zero
@@ -338,6 +339,8 @@ contract PrizePoolVaultTest is Test {
         vault.withdraw();
         vm.prank(p3);
         vault.withdraw();
+        vm.prank(p1);
+        vault.claimBondRefund(); // compensation pulled separately from the prize
         assertEq(address(vault).balance, 0);
     }
 
@@ -356,17 +359,16 @@ contract PrizePoolVaultTest is Test {
         vault.challenge{value: BOND}();
         vault.reResolve(_toCalldata(ranked), _sign(ranked, 2, _twoSigs()));
 
-        // challenge #3 -> reResolve #3 must revert (MAX_RE_RESOLUTIONS = 2)
+        // challenge #3 must revert AT THE DOOR: with re-resolutions exhausted,
+        // the standing result is final (audit H-1 fix).
         vm.prank(p2);
-        vault.challenge{value: BOND}();
-        bytes[] memory sigs = _sign(ranked, 3, _twoSigs());
         vm.expectRevert(PrizePoolVault.TooManyReResolutions.selector);
-        vault.reResolve(_toCalldata(ranked), sigs);
+        vault.challenge{value: BOND}();
 
-        // exit exists: past the re-resolve deadline anyone can cancel
+        // and the final result is finalizable, not cancellable-by-griefer
         vm.warp(block.timestamp + WINDOW + 1);
-        vault.cancel("re-resolution exhausted");
-        assertEq(uint8(vault.state()), uint8(PrizePoolVault.State.Cancelled));
+        vault.finalize();
+        assertEq(uint8(vault.state()), uint8(PrizePoolVault.State.Withdrawable));
     }
 
     // ─────────────────────────────────────────────────────────────

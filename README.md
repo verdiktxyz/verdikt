@@ -1,25 +1,28 @@
-# ArcGG — GG, get paid.
+# Verdikt — the jury signs, the money moves.
 
-Self-service, trustless prize pools for esports tournaments on [Arc](https://arc.io),
-Circle's stablecoin-native L1. Anyone can create a tournament in one transaction;
-sponsors lock USDC upfront, results settle instantly into locked claims, winners
-withdraw after a clean challenge window.
+**Attested payout escrow** on [Arc](https://arc.io), Circle's stablecoin-native L1.
+Anywhere a jury decides who gets paid — hackathons, esports tournaments, design
+contests, community bounties — anyone can create a competition in one transaction:
+sponsors lock USDC upfront, an M-of-N jury attests the result, and winners withdraw
+after a clean challenge window.
 
-**Track:** DeFi · Programmable Money Hackathon — Build on Arc (Encode, 2026)
-**Live demo:** https://arcgg-ten.vercel.app · **Video:** https://youtu.be/QJ-VZyUYPXg
+**Live demo:** https://verdiktprotocol.xyz · [@verdiktxyz](https://x.com/verdiktxyz)
+
+*Originally built as ArcGG for the Programmable Money Hackathon — Build on Arc (Encode, 2026); renamed and broadened beyond esports.*
 
 ## The problem
 
-In grassroots esports — especially across Africa's fast-growing competitive scene — prize
-money runs on trust. Organizers collect entry fees and sponsor money off-chain, and winners
+Wherever a jury hands out prize money — grassroots esports, hackathons, student and
+community competitions, especially across Africa's fast-growing scenes — payouts run on
+trust. Organizers collect entry fees and sponsor money off-chain, and winners
 chase payouts for weeks. Sometimes the money never comes. The pattern is so common it has
 a name in every community: *the organizer ran off with the pot.*
 
 ## The solution
 
-ArcGG replaces "trust the organizer" with a state-machine vault on Arc:
+Verdikt replaces "trust the organizer" with a state-machine vault on Arc:
 
-1. **Anyone can spin up a tournament.** One transaction on the ArcGGFactory deploys a
+1. **Anyone can spin up a competition.** One transaction on the VerdiktFactory deploys a
    dedicated vault; the creator becomes the organizer, and an on-chain registry lists
    every tournament. Prize splits are configurable (1–8 paid places, presets matching
    how African tournaments actually pay — IESF 2024: top-3, 50/30/20).
@@ -37,7 +40,7 @@ ArcGG replaces "trust the organizer" with a state-machine vault on Arc:
    organizer or judges vanish.
 
 Everything is inspectable in-app before anyone deposits a cent: judges, roster, split,
-deadlines. ArcGG doesn't make organizers honest — it makes them inspectable.
+deadlines. Verdikt doesn't make organizers honest — it makes them inspectable.
 
 ## State machine
 
@@ -82,7 +85,7 @@ Key mechanics:
 
 **Arc Testnet** (chain 5042002):
 
-- **ArcGGFactory (main entry point)** — create your own tournament:
+- **VerdiktFactory (main entry point)** — create your own competition:
   [`0xd01F9Fda58f6AecD303664E4f320152f077810c2`](https://testnet.arcscan.app/address/0xd01F9Fda58f6AecD303664E4f320152f077810c2)
 - Example tournament vault (the one from the demo video):
   [`0x5EbeC44aF0E4EdCbB6Dc43bec32a262A0BadCF81`](https://testnet.arcscan.app/address/0x5EbeC44aF0E4EdCbB6Dc43bec32a262A0BadCF81)
@@ -94,8 +97,8 @@ Key mechanics:
 
 ```
 contracts/   Foundry project (Solidity 0.8.24, OpenZeppelin v5.6)
-  src/       ArcGGFactory.sol · PrizePoolVault.sol · ArbiterAttestation.sol · RankMath.sol
-  test/      29 tests: state machine, bond mechanics, replay protection, fuzz invariants
+  src/       VerdiktFactory.sol · PrizePoolVault.sol · ArbiterAttestation.sol · RankMath.sol
+  test/      34 tests: state machine, audit regressions, bond mechanics, replay protection, fuzz invariants
   script/    Deploy.s.sol · DeployFactory.s.sol (Arc testnet, env-required params)
 app/         Next.js + Viem + Wagmi frontend — landing + create form, live state rail,
              organizer/participants/rules panels, deadline countdowns, same-origin RPC proxy
@@ -108,7 +111,7 @@ demo/        Arbiter EIP-712 signing script + scene-by-scene demo runbook
 cd contracts
 forge install          # forge-std + openzeppelin-contracts v5.6
 forge build
-forge test             # 29 tests incl. 512-run fuzz on the payout invariant
+forge test             # 34 tests incl. 512-run fuzz + audit regressions
 ```
 
 Deploy your own factory to Arc testnet ([faucet](https://faucet.circle.com), chain id `5042002`):
@@ -129,7 +132,8 @@ npm run dev            # http://localhost:3000 — landing, create, and tourname
 
 ## Status
 
-- [x] Vault state machine + M-of-N EIP-712 attestation — 29/29 tests green
+- [x] Vault state machine + M-of-N EIP-712 attestation — 34/34 tests green
+- [x] Internal pre-mainnet security audit + fixes (see `docs/`)
 - [x] Self-service factory with on-chain tournament registry
 - [x] Transparency by default: judges, roster, splits, deadline valves — inspectable in-app
 - [x] Full lifecycle verified on Arc Testnet with real 2-of-3 signatures

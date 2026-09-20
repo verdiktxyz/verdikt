@@ -1,6 +1,6 @@
 // Generated from contracts/out/VerdiktFactory.sol/VerdiktFactory.json — do not edit by hand.
 // TODO: replace with the mainnet factory address after DeployFactory.s.sol
-export const FACTORY_ADDRESS = "0xd01F9Fda58f6AecD303664E4f320152f077810c2" as const;
+export const FACTORY_ADDRESS = "0x29e46eF9C3E2DE095F1Cfe11a3cdD851aA5a2103" as const;
 
 export const factoryAbi = [
   {
